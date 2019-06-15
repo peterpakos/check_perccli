@@ -1,0 +1,151 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility
+
+Author: Peter Pakos <peter.pakos@wandisco.com>
+
+Copyright (C) 2019 WANdisco
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import os
+import argparse
+import paramiko
+import json
+from pplogger import get_logger
+
+
+__version__ = '1.0.0'
+
+parser = argparse.ArgumentParser(
+    description='Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility',
+    add_help=False)
+parser.add_argument('--version', action='version', version='%s %s' % (os.path.basename(__file__), __version__))
+parser.add_argument('-h', '--help', action='help', help='show this help message and exit')
+parser.add_argument('--debug', action='store_true', dest='debug', help='debugging mode')
+parser.add_argument('--verbose', action='store_true', dest='verbose', help='verbose debugging mode')
+parser.add_argument('--quiet', action='store_true', dest='quiet', help='no console output')
+parser.add_argument('-H', '--host', dest='host', help='server hostname or IP address', required=True)
+parser.add_argument('-P', '--port', dest='port', help='SSH port (default: %(default)s)', default='22')
+parser.add_argument('-u', '--username', dest='username', help='SSH username (default: %(default)s)', default='root')
+parser.add_argument('-p', '--password', dest='password', help='SSH password (overrides publickey auth)')
+parser.add_argument('-k', '--ssh-key', dest='ssh_key', help='SSH private key (default: %(default)s)',
+                    default='~/.ssh/id_rsa')
+parser.add_argument('-c', '--perccli-path', dest='perccli_path', help='Path to perccli (default: %(default)s)',
+                    default='/opt/lsi/perccli/perccli')
+args = parser.parse_args()
+
+log = get_logger(name=__name__, debug=args.debug, quiet=args.quiet, verbose=args.verbose)
+
+
+def die(exit_code, message):
+    exit_codes = {
+        0: 'OK',
+        1: 'WARNING',
+        2: 'CRITICAL',
+        3: 'UNKNOWN'
+    }
+
+    log.info('%s - %s' % (exit_codes[exit_code], message))
+    exit(exit_code)
+
+
+def main():
+    log.debug(args)
+
+    ssh_client = paramiko.SSHClient()
+    ssh_client.load_system_host_keys()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy)
+
+    ssh_key = args.ssh_key.replace('~', os.path.expanduser('~'))
+    if not os.path.exists(ssh_key):
+        log.debug('SSH key %s does not exist' % ssh_key)
+        ssh_key = None
+
+        if not args.password:
+            die(3, 'Valid SSH key or password required')
+
+    try:
+        ssh_client.connect(hostname=args.host, port=args.port, username=args.username, timeout=10,
+                           password=args.password, key_filename=ssh_key)
+
+    except Exception as e:
+        die(3, 'SSH connection error: %s' % e)
+    else:
+        log.debug('SSH connection established')
+
+    stdin, stdout, stderr = ssh_client.exec_command('%s /call show all j' % args.perccli_path)
+
+    stdout = stdout.read().strip().decode('utf-8')
+    try:
+        stdout = json.loads(stdout)
+    except Exception as e:
+        die(3, 'PERCCLI output parsing error: %s' % e)
+
+    ssh_client.close()
+
+    controllers = stdout.get('Controllers')
+
+    exit_code = 0
+    msg = []
+
+    log.debug('Controllers: %s' % len(controllers))
+
+    for c, controller in enumerate(controllers):
+        controller_state = controller.get('Response Data').get('Status').get('Controller Status')
+        if controller_state != 'Optimal':
+            exit_code = 2
+        log.debug('C%s: %s (%s)' % (c, controller.get('Response Data').get('Basics').get('Model'), controller_state))
+        msg.append('C%s: %s' % (c, controller_state))
+
+        pds = controller.get('Response Data').get('PD LIST')
+        log.debug('C%s Physical Drives: %s' % (c, len(pds)))
+
+        for p, pd in enumerate(pds):
+            pd_state = pd.get('State')
+            if pd_state == 'Rbld':
+                if exit_code < 1:
+                    exit_code = 1
+            elif pd_state not in ['Onln', 'UGood']:
+                exit_code = 2
+            log.debug('C%s PD%s: %s %s (%s)' % (c, p, pd.get('Model'), pd.get('Size'), pd_state))
+            msg.append('PD%s: %s' % (p, pd_state))
+
+        vds = controller.get('Response Data').get('VD LIST')
+        log.debug('C%s Virtual Drives: %s' % (c, len(vds)))
+
+        for v, vd in enumerate(vds):
+            vd_state = vd.get('State')
+            if vd_state != 'Optl':
+                if exit_code != 1:
+                    exit_code = 2
+            log.debug('C%s VD%s: %s (%s)' % (c, v, vd.get('TYPE'), vd_state))
+            msg.append('VD%s: %s' % (v, vd_state))
+
+        battery_state = controller.get('Response Data').get('BBU_Info')[0].get('State')
+        if battery_state != 'Optimal':
+            exit_code = 2
+        log.debug('C%s BBU (%s)' % (c, battery_state))
+        msg.append('BBU: %s' % battery_state)
+
+        die(exit_code, ', '.join(msg) if msg else 'No problems detected')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        log.critical('\nCancelling...')
+        exit(130)
