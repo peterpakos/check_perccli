@@ -27,7 +27,7 @@ import json
 from pplogger import get_logger
 
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 parser = argparse.ArgumentParser(
     description='Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility',
@@ -36,7 +36,6 @@ parser.add_argument('--version', action='version', version='%s %s' % (os.path.ba
 parser.add_argument('-h', '--help', action='help', help='show this help message and exit')
 parser.add_argument('--debug', action='store_true', dest='debug', help='debugging mode')
 parser.add_argument('--verbose', action='store_true', dest='verbose', help='verbose debugging mode')
-parser.add_argument('--quiet', action='store_true', dest='quiet', help='no console output')
 parser.add_argument('-H', '--host', dest='host', help='server hostname or IP address', required=True)
 parser.add_argument('-P', '--port', dest='port', help='SSH port (default: %(default)s)', default='22')
 parser.add_argument('-u', '--username', dest='username', help='SSH username (default: %(default)s)', default='root')
@@ -47,7 +46,7 @@ parser.add_argument('-c', '--perccli-path', dest='perccli_path', help='Path to p
                     default='/opt/lsi/perccli/perccli')
 args = parser.parse_args()
 
-log = get_logger(name=__name__, debug=args.debug, quiet=args.quiet, verbose=args.verbose)
+log = get_logger(name=__name__, debug=args.debug, verbose=args.verbose)
 
 
 def die(exit_code, message):
