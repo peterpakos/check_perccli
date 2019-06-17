@@ -27,7 +27,7 @@ import json
 from pplogger import get_logger
 
 
-__version__ = '1.0.1'
+__version__ = '1.1.0'
 
 parser = argparse.ArgumentParser(
     description='Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility',
@@ -114,9 +114,8 @@ def main():
 
         for p, pd in enumerate(pds):
             pd_state = pd.get('State')
-            if pd_state == 'Rbld':
-                if exit_code < 1:
-                    exit_code = 1
+            if pd_state == 'Rbld' and exit_code < 1:
+                exit_code = 1
             elif pd_state not in ['Onln', 'UGood']:
                 exit_code = 2
             log.debug('C%s PD%s: %s %s (%s)' % (c, p, pd.get('Model'), pd.get('Size'), pd_state))
@@ -127,11 +126,13 @@ def main():
 
         for v, vd in enumerate(vds):
             vd_state = vd.get('State')
-            if vd_state != 'Optl':
-                if exit_code != 1:
-                    exit_code = 2
+            vd_consist = vd.get('Consist')
+            if vd_state != 'Optl' and exit_code != 1:
+                exit_code = 2
+            if vd_consist == 'No' and exit_code < 1:
+                exit_code = 1
             log.debug('C%s VD%s: %s (%s)' % (c, v, vd.get('TYPE'), vd_state))
-            msg.append('VD%s: %s' % (v, vd_state))
+            msg.append('VD%s: %s%s' % (v, vd_state, ' (Inconsistent)' if vd_consist == 'No' else ''))
 
         battery_state = controller.get('Response Data').get('BBU_Info')[0].get('State')
         if battery_state != 'Optimal':
