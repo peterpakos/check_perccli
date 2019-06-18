@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility
+"""Nagios/Opsview plugin to check status of PowerEdge RAID Controller
 
 Author: Peter Pakos <peter.pakos@wandisco.com>
 
@@ -27,12 +27,12 @@ import json
 from pplogger import get_logger
 
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 
 parser = argparse.ArgumentParser(
-    description='Nagios/Opsview plugin to check status of PowerEdge RAID Controller using PERCCLI utility',
+    description='Nagios/Opsview plugin to check status of PowerEdge RAID Controller',
     add_help=False)
-parser.add_argument('--version', action='version', version='%s %s' % (os.path.basename(__file__), __version__))
+parser.add_argument('-v', '--version', action='version', version='%s %s' % (os.path.basename(__file__), __version__))
 parser.add_argument('-h', '--help', action='help', help='show this help message and exit')
 parser.add_argument('--debug', action='store_true', dest='debug', help='debugging mode')
 parser.add_argument('--verbose', action='store_true', dest='verbose', help='verbose debugging mode')
@@ -127,7 +127,7 @@ def main():
         for v, vd in enumerate(vds):
             vd_state = vd.get('State')
             vd_consist = vd.get('Consist')
-            if vd_state != 'Optl' and exit_code != 1:
+            if vd_state != 'Optl' and exit_code < 1:
                 exit_code = 2
             if vd_consist == 'No' and exit_code < 1:
                 exit_code = 1
